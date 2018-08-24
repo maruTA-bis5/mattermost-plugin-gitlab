@@ -9,7 +9,7 @@ import (
 
 	"github.com/mattermost/mattermost-server/mlog"
 
-	"github.com/google/go-github/github"
+	"github.com/xanzy/go-gitlab"
 )
 
 const (
@@ -46,8 +46,8 @@ func (s *Subscription) Label() string {
 	return labelSplit[1]
 }
 
-func (p *Plugin) Subscribe(ctx context.Context, githubClient *github.Client, userId, ownerAndRepo, channelID, features string) error {
-	_, owner, repo := parseOwnerAndRepo(ownerAndRepo, p.EnterpriseBaseURL)
+func (p *Plugin) Subscribe(ctx context.Context, gitlabClient *gitlab.Client, userId, ownerAndRepo, channelID, features string) error {
+	_, owner, repo := parseOwnerAndRepo(ownerAndRepo, p.BaseURL)
 
 	if owner == "" {
 		return fmt.Errorf("Invalid repository")
@@ -57,7 +57,7 @@ func (p *Plugin) Subscribe(ctx context.Context, githubClient *github.Client, use
 		return err
 	}
 
-	if result, _, err := githubClient.Repositories.Get(ctx, owner, repo); result == nil || err != nil {
+	if result, _, err := gitlabClient.Projects.GetProject(ownerAndRepo); result == nil || err != nil {
 		if err != nil {
 			mlog.Error(err.Error())
 		}
@@ -145,7 +145,7 @@ func (p *Plugin) GetSubscribedChannelsForRepository(repository string) []*Subscr
 }
 
 func (p *Plugin) Unsubscribe(channelID string, repo string) error {
-	repo, _, _ = parseOwnerAndRepo(repo, p.EnterpriseBaseURL)
+	repo, _, _ = parseOwnerAndRepo(repo, p.BaseURL)
 
 	if repo == "" {
 		return fmt.Errorf("Invalid repository")

@@ -13,6 +13,7 @@ import (
 	"unicode"
 )
 
+// TODO(gitlab): Support search result restricted by org
 func getMentionSearchQuery(username, org string) string {
 	return bulidSearchQuery("is:open mentions:%v archived:false %v", username, org)
 }
@@ -104,9 +105,6 @@ func decrypt(key []byte, text string) (string, error) {
 }
 
 func parseOwnerAndRepo(full, baseURL string) (string, string, string) {
-	if baseURL == "" {
-		baseURL = "https://github.com/"
-	}
 	full = strings.TrimSuffix(strings.TrimSpace(strings.Replace(full, baseURL, "", 1)), "/")
 	splitStr := strings.Split(full, "/")
 	if len(splitStr) != 2 {
@@ -118,7 +116,7 @@ func parseOwnerAndRepo(full, baseURL string) (string, string, string) {
 	return fmt.Sprintf("%s/%s", owner, repo), owner, repo
 }
 
-func parseGitHubUsernamesFromText(text string) []string {
+func parseGitLabUsernamesFromText(text string) []string {
 	usernameMap := map[string]bool{}
 	usernames := []string{}
 

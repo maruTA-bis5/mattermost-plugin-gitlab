@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/google/go-github/github"
+	"github.com/xanzy/go-gitlab"
 	"github.com/mattermost/mattermost-server/mlog"
 	"github.com/mattermost/mattermost-server/model"
 	"github.com/mattermost/mattermost-server/plugin"
@@ -19,8 +19,8 @@ import (
 
 const (
 	API_ERROR_ID_NOT_CONNECTED = "not_connected"
-	GITHUB_ICON_URL            = "https://assets-cdn.github.com/images/modules/logos_page/GitHub-Mark.png"
-	GITHUB_USERNAME            = "GitHub Plugin"
+	GITLAB_ICON_URL            = "https://gitlab.com/gitlab-org/gitlab-ce/raw/master/public/slash-command-logo.png"
+	GITLAB_USERNAME            = "GitLab Plugin"
 )
 
 type APIErrorResponse struct {
@@ -46,23 +46,23 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 	case "/webhook":
 		p.handleWebhook(w, r)
 	case "/oauth/connect":
-		p.connectUserToGitHub(w, r)
+		p.connectUserToGitLab(w, r)
 	case "/oauth/complete":
-		p.completeConnectUserToGitHub(w, r)
+		p.completeConnectUserToGitLab(w, r)
 	case "/api/v1/connected":
 		p.getConnected(w, r)
 	case "/api/v1/todo":
 		p.postToDo(w, r)
-	case "/api/v1/reviews":
-		p.getReviews(w, r)
-	case "/api/v1/yourprs":
-		p.getYourPrs(w, r)
+	//case "/api/v1/reviews":
+	//	p.getReviews(w, r)
+	case "/api/v1/yourmrs":
+		p.getYourMrs(w, r)
 	case "/api/v1/yourassignments":
 		p.getYourAssignments(w, r)
-	case "/api/v1/mentions":
-		p.getMentions(w, r)
-	case "/api/v1/unreads":
-		p.getUnreads(w, r)
+	//case "/api/v1/mentions":
+	//	p.getMentions(w, r)
+	//case "/api/v1/unreads":
+	//	p.getUnreads(w, r)
 	case "/api/v1/settings":
 		p.updateSettings(w, r)
 	default:
@@ -70,7 +70,7 @@ func (p *Plugin) ServeHTTP(c *plugin.Context, w http.ResponseWriter, r *http.Req
 	}
 }
 
-func (p *Plugin) connectUserToGitHub(w http.ResponseWriter, r *http.Request) {
+func (p *Plugin) connectUserToGitLab(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("Mattermost-User-ID")
 	if userID == "" {
 		http.Error(w, "Not authorized", http.StatusUnauthorized)
@@ -88,7 +88,7 @@ func (p *Plugin) connectUserToGitHub(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, url, http.StatusFound)
 }
 
-func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Request) {
+func (p *Plugin) completeConnectUserToGitLab(w http.ResponseWriter, r *http.Request) {
 	ctx := context.Background()
 	conf := p.getOAuthConfig()
 
@@ -118,8 +118,8 @@ func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	githubClient := p.githubConnect(*tok)
-	gitUser, _, err := githubClient.Users.Get(ctx, "")
+	gitlabClient := p.gitlabConnect(*tok)
+	gitUser, _, err := gitlabClient.Users.CurrentUser()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -132,7 +132,7 @@ func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Requ
 		if user.Props == nil {
 			user.Props = model.StringMap{}
 		}
-		user.Props["git_user"] = *gitUser.Login
+		user.Props["gitlab_user"] = gitUser.Username
 		_, err = p.API.UpdateUser(user)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -140,10 +140,10 @@ func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Requ
 		}
 	}
 
-	userInfo := &GitHubUserInfo{
+	userInfo := &GitLabUserInfo{
 		UserID:         userID,
 		Token:          tok,
-		GitHubUsername: gitUser.GetLogin(),
+		GitLabUsername: gitUser.Username,
 		LastToDoPostAt: model.GetMillis(),
 		Settings: &UserSettings{
 			SidebarButtons: SETTING_BUTTONS_TEAM,
@@ -152,26 +152,26 @@ func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Requ
 		},
 	}
 
-	if err := p.storeGitHubUserInfo(userInfo); err != nil {
+	if err := p.storeGitLabUserInfo(userInfo); err != nil {
 		mlog.Error(err.Error())
 		http.Error(w, "Unable to connect user to GitHub", http.StatusInternalServerError)
 		return
 	}
 
-	if err := p.storeGitHubToUserIDMapping(gitUser.GetLogin(), userID); err != nil {
+	if err := p.storeGitLabToUserIDMapping(gitUser.Username, userID); err != nil {
 		mlog.Error(err.Error())
 	}
 
 	// Post intro post
-	message := fmt.Sprintf("#### Welcome to the Mattermost GitHub Plugin!\n You've connected your Mattermost account to [%s](%s) on GitHub. Read about the features of this plugin below:\n\n##### Daily Reminders\nThe first time you log in each day, you will get a post right here letting you know what messages you need to read and what pull requests are awaiting your review.\nTurn off reminders with `/github settings reminders off`.\n\n##### Notifications\nWhen someone mentions you, requests your review, comments on or modifies one of your pull requests/issues, or assigns you, you'll get a post here about it.\nTurn off notifications with `/github settings notifications off`.\n\n##### Sidebar Buttons\nCheck out the buttons in the left-hand sidebar of Mattermost.\n* The first button tells you how many pull requests are awaiting your review\n* The second tracks the number of unread messages you have\n* The third will refresh the numbers\n\nClick on them!\n\n##### Slash Commands\n"+strings.Replace(COMMAND_HELP, "|", "`", -1), gitUser.GetLogin(), gitUser.GetHTMLURL())
-	p.CreateBotDMPost(userID, message, "custom_git_welcome")
+	message := fmt.Sprintf("#### Welcome to the Mattermost GitLab Plugin!\n You've connected your Mattermost account to [%s](%s) on GitLab. Read about the features of this plugin below:\n\n##### Daily Reminders\nThe first time you log in each day, you will get a post right here letting you know what messages you need to read and what pull requests are awaiting your review.\nTurn off reminders with `/gitlab settings reminders off`.\n\n##### Notifications\nWhen someone mentions you, requests your review, comments on or modifies one of your pull requests/issues, or assigns you, you'll get a post here about it.\nTurn off notifications with `/gitlab settings notifications off`.\n\n##### Sidebar Buttons\nCheck out the buttons in the left-hand sidebar of Mattermost.\n* The first button tells you how many pull requests are awaiting your review\n* The second tracks the number of unread messages you have\n* The third will refresh the numbers\n\nClick on them!\n\n##### Slash Commands\n"+strings.Replace(COMMAND_HELP, "|", "`", -1), gitUser.Username, p.BaseURL+"/"+gitUser.Username)
+	p.CreateBotDMPost(userID, message, "custom_gitlab_welcome")
 
 	p.API.PublishWebSocketEvent(
 		WS_EVENT_CONNECT,
 		map[string]interface{}{
 			"connected":        true,
-			"github_username":  userInfo.GitHubUsername,
-			"github_client_id": p.GitHubOAuthClientID,
+			"gitlab_username":  userInfo.GitLabUsername,
+			"gitlab_client_id": p.GitLabOAuthClientID,
 		},
 		&model.WebsocketBroadcast{UserId: userID},
 	)
@@ -196,9 +196,9 @@ func (p *Plugin) completeConnectUserToGitHub(w http.ResponseWriter, r *http.Requ
 
 type ConnectedResponse struct {
 	Connected         bool          `json:"connected"`
-	GitHubUsername    string        `json:"github_username"`
-	GitHubClientID    string        `json:"github_client_id"`
-	EnterpriseBaseURL string        `json:"enterprise_base_url,omitempty"`
+	GitLabUsername    string        `json:"gitlab_username"`
+	GitLabClientID    string        `json:"gitlab_client_id"`
+	BaseURL           string        `json:"base_url"`
 	Settings          *UserSettings `json:"settings"`
 }
 
@@ -209,13 +209,13 @@ func (p *Plugin) getConnected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp := &ConnectedResponse{Connected: false, EnterpriseBaseURL: p.EnterpriseBaseURL}
+	resp := &ConnectedResponse{Connected: false, BaseURL: p.BaseURL}
 
-	info, _ := p.getGitHubUserInfo(userID)
+	info, _ := p.getGitLabUserInfo(userID)
 	if info != nil && info.Token != nil {
 		resp.Connected = true
-		resp.GitHubUsername = info.GitHubUsername
-		resp.GitHubClientID = p.GitHubOAuthClientID
+		resp.GitLabUsername = info.GitLabUsername
+		resp.GitLabClientID = p.GitLabOAuthClientID
 		resp.Settings = info.Settings
 
 		if info.Settings.DailyReminder && r.URL.Query().Get("reminder") == "true" {
@@ -232,7 +232,7 @@ func (p *Plugin) getConnected(w http.ResponseWriter, r *http.Request) {
 			if nt.Sub(lt).Hours() >= 1 && (nt.Day() != lt.Day() || nt.Month() != lt.Month() || nt.Year() != lt.Year()) {
 				p.PostToDo(info)
 				info.LastToDoPostAt = now
-				p.storeGitHubUserInfo(info)
+				p.storeGitLabUserInfo(info)
 			}
 		}
 	}
@@ -242,6 +242,7 @@ func (p *Plugin) getConnected(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Plugin) getMentions(w http.ResponseWriter, r *http.Request) {
+	/*
 	userID := r.Header.Get("Mattermost-User-ID")
 	if userID == "" {
 		http.Error(w, "Not authorized", http.StatusUnauthorized)
@@ -253,12 +254,12 @@ func (p *Plugin) getMentions(w http.ResponseWriter, r *http.Request) {
 	var githubClient *github.Client
 	username := ""
 
-	if info, err := p.getGitHubUserInfo(userID); err != nil {
+	if info, err := p.getGitLabUserInfo(userID); err != nil {
 		writeAPIError(w, err)
 		return
 	} else {
-		githubClient = p.githubConnect(*info.Token)
-		username = info.GitHubUsername
+		gitlabClient = p.gitlabConnect(*info.Token)
+		username = info.GitLabUsername
 	}
 
 	result, _, err := githubClient.Search.Issues(ctx, getMentionSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
@@ -268,9 +269,11 @@ func (p *Plugin) getMentions(w http.ResponseWriter, r *http.Request) {
 
 	resp, _ := json.Marshal(result.Issues)
 	w.Write(resp)
+	*/
 }
 
 func (p *Plugin) getUnreads(w http.ResponseWriter, r *http.Request) {
+	/*
 	userID := r.Header.Get("Mattermost-User-ID")
 	if userID == "" {
 		http.Error(w, "Not authorized", http.StatusUnauthorized)
@@ -308,8 +311,10 @@ func (p *Plugin) getUnreads(w http.ResponseWriter, r *http.Request) {
 
 	resp, _ := json.Marshal(filteredNotifications)
 	w.Write(resp)
+	*/
 }
 
+/*
 func (p *Plugin) getReviews(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("Mattermost-User-ID")
 	if userID == "" {
@@ -338,33 +343,32 @@ func (p *Plugin) getReviews(w http.ResponseWriter, r *http.Request) {
 	resp, _ := json.Marshal(result.Issues)
 	w.Write(resp)
 }
+*/
 
-func (p *Plugin) getYourPrs(w http.ResponseWriter, r *http.Request) {
+func (p *Plugin) getYourMrs(w http.ResponseWriter, r *http.Request) {
 	userID := r.Header.Get("Mattermost-User-ID")
 	if userID == "" {
 		http.Error(w, "Not authorized", http.StatusUnauthorized)
 		return
 	}
 
-	ctx := context.Background()
+	var gitlabClient *gitlab.Client
 
-	var githubClient *github.Client
-	username := ""
-
-	if info, err := p.getGitHubUserInfo(userID); err != nil {
+	if info, err := p.getGitLabUserInfo(userID); err != nil {
 		writeAPIError(w, err)
 		return
 	} else {
-		githubClient = p.githubConnect(*info.Token)
-		username = info.GitHubUsername
+		gitlabClient = p.gitlabConnect(*info.Token)
 	}
 
-	result, _, err := githubClient.Search.Issues(ctx, getYourPrsSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
+	result, _, err := gitlabClient.MergeRequests.ListMergeRequests(&gitlab.ListMergeRequestsOptions{
+		Scope: gitlab.String("created_by_me"),
+	})
 	if err != nil {
 		mlog.Error(err.Error())
 	}
 
-	resp, _ := json.Marshal(result.Issues)
+	resp, _ := json.Marshal(result)
 	w.Write(resp)
 }
 
@@ -375,25 +379,37 @@ func (p *Plugin) getYourAssignments(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.Background()
+	var gitlabClient *gitlab.Client
 
-	var githubClient *github.Client
-	username := ""
-
-	if info, err := p.getGitHubUserInfo(userID); err != nil {
+	if info, err := p.getGitLabUserInfo(userID); err != nil {
 		writeAPIError(w, err)
 		return
 	} else {
-		githubClient = p.githubConnect(*info.Token)
-		username = info.GitHubUsername
+		gitlabClient = p.gitlabConnect(*info.Token)
 	}
 
-	result, _, err := githubClient.Search.Issues(ctx, getYourAssigneeSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
+	issues, _, err := gitlabClient.Issues.ListIssues(&gitlab.ListIssuesOptions{
+		Scope: gitlab.String("assigned_to_me"),
+	})
+	if err != nil {
+		mlog.Error(err.Error())
+	}
+	mrs, _, err := gitlabClient.MergeRequests.ListMergeRequests(&gitlab.ListMergeRequestsOptions{
+		Scope: gitlab.String("assigned_to_me"),
+	})
 	if err != nil {
 		mlog.Error(err.Error())
 	}
 
-	resp, _ := json.Marshal(result.Issues)
+	response := make([]interface{}, 0)
+	for i := range issues {
+		response = append(response, i)
+	}
+	for m := range mrs {
+		response = append(response, m)
+	}
+
+	resp, _ := json.Marshal(response)
 	w.Write(resp)
 }
 
@@ -404,25 +420,25 @@ func (p *Plugin) postToDo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var githubClient *github.Client
+	var gitlabClient *gitlab.Client
 	username := ""
 
-	if info, err := p.getGitHubUserInfo(userID); err != nil {
+	if info, err := p.getGitLabUserInfo(userID); err != nil {
 		writeAPIError(w, err)
 		return
 	} else {
-		githubClient = p.githubConnect(*info.Token)
-		username = info.GitHubUsername
+		gitlabClient = p.gitlabConnect(*info.Token)
+		username = info.GitLabUsername
 	}
 
-	text, err := p.GetToDo(context.Background(), username, githubClient)
+	text, err := p.GetToDo(context.Background(), username, gitlabClient)
 	if err != nil {
 		mlog.Error(err.Error())
 		writeAPIError(w, &APIErrorResponse{ID: "", Message: "Encountered an error getting the to do items.", StatusCode: http.StatusUnauthorized})
 		return
 	}
 
-	if err := p.CreateBotDMPost(userID, text, "custom_git_todo"); err != nil {
+	if err := p.CreateBotDMPost(userID, text, "custom_gitlab_todo"); err != nil {
 		writeAPIError(w, &APIErrorResponse{ID: "", Message: "Encountered an error posting the to do items.", StatusCode: http.StatusUnauthorized})
 	}
 
@@ -443,7 +459,7 @@ func (p *Plugin) updateSettings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	info, err := p.getGitHubUserInfo(userID)
+	info, err := p.getGitLabUserInfo(userID)
 	if err != nil {
 		writeAPIError(w, err)
 		return
@@ -451,7 +467,7 @@ func (p *Plugin) updateSettings(w http.ResponseWriter, r *http.Request) {
 
 	info.Settings = settings
 
-	if err := p.storeGitHubUserInfo(info); err != nil {
+	if err := p.storeGitLabUserInfo(info); err != nil {
 		mlog.Error(err.Error())
 		http.Error(w, "Encountered error updating settings", http.StatusInternalServerError)
 	}

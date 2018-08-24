@@ -8,30 +8,30 @@ import (
 	"github.com/mattermost/mattermost-server/mlog"
 	"github.com/mattermost/mattermost-server/plugin"
 
-	"github.com/google/go-github/github"
+	"github.com/xanzy/go-gitlab"
 	"github.com/mattermost/mattermost-server/model"
 )
 
-const COMMAND_HELP = `* |/github connect| - Connect your Mattermost account to your GitHub account
-* |/github disconnect| - Disconnect your Mattermost account from your GitHub account
-* |/github todo| - Get a list of unread messages and pull requests awaiting your review
-* |/github subscribe owner/repo [features]| - Subscribe the current channel to receive notifications about opened pull requests and issues for a repository
+const COMMAND_HELP = `* |/gitlab connect| - Connect your Mattermost account to your GitLab account
+* |/gitlab disconnect| - Disconnect your Mattermost account from your GitLab account
+* |/gitlab todo| - Get a list of unread messages and pull requests awaiting your review
+* |/gitlab subscribe owner/repo [features]| - Subscribe the current channel to receive notifications about opened pull requests and issues for a repository
   * |features| is a comma-delimited list of one or more the following:
     * issues - includes new issues
 	* pulls - includes new pull requests
 	* label:"<labelname>" - must include "pulls" or "issues" in feature list when using a label
   * Defaults to "pulls,issues"
-* |/github unsubscribe owner/repo| - Unsubscribe the current channel from a repository
-* |/github me| - Display the connected GitHub account
-* |/github settings [setting] [value]| - Update your user settings
+* |/gitlab unsubscribe owner/repo| - Unsubscribe the current channel from a repository
+* |/gitlab me| - Display the connected GitLab account
+* |/gitlab settings [setting] [value]| - Update your user settings
   * |setting| can be "notifications" or "reminders"
   * |value| can be "on" or "off"`
 
 func getCommand() *model.Command {
 	return &model.Command{
-		Trigger:          "github",
-		DisplayName:      "Github",
-		Description:      "Integration with Github.",
+		Trigger:          "gitlab",
+		DisplayName:      "GitLab",
+		Description:      "Integration with GitLab.",
 		AutoComplete:     true,
 		AutoCompleteDesc: "Available commands: connect, disconnect, todo, me, settings, subscribe, unsubscribe, help",
 		AutoCompleteHint: "[command]",
@@ -42,8 +42,8 @@ func getCommandResponse(responseType, text string) *model.CommandResponse {
 	return &model.CommandResponse{
 		ResponseType: responseType,
 		Text:         text,
-		Username:     GITHUB_USERNAME,
-		IconURL:      GITHUB_ICON_URL,
+		Username:     GITLAB_USERNAME,
+		IconURL:      GITLAB_ICON_URL,
 		Type:         model.POST_DEFAULT,
 	}
 }
@@ -60,33 +60,33 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 		parameters = split[2:]
 	}
 
-	if command != "/github" {
+	if command != "/gitlab" {
 		return nil, nil
 	}
 
 	if action == "connect" {
 		config := p.API.GetConfig()
 		if config.ServiceSettings.SiteURL == nil {
-			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Encountered an error connecting to GitHub."), nil
+			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Encountered an error connecting to GitLab."), nil
 		}
 
-		resp := getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, fmt.Sprintf("[Click here to link your GitHub account.](%s/plugins/github/oauth/connect)", *config.ServiceSettings.SiteURL))
+		resp := getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, fmt.Sprintf("[Click here to link your GitLab account.](%s/plugins/gitlab/oauth/connect)", *config.ServiceSettings.SiteURL))
 		return resp, nil
 	}
 
 	ctx := context.Background()
-	var githubClient *github.Client
+	var gitlabClient *gitlab.Client
 
-	info, apiErr := p.getGitHubUserInfo(args.UserId)
+	info, apiErr := p.getGitLabUserInfo(args.UserId)
 	if apiErr != nil {
 		text := "Unknown error."
 		if apiErr.ID == API_ERROR_ID_NOT_CONNECTED {
-			text = "You must connect your account to GitHub first. Either click on the GitHub logo in the bottom left of the screen or enter `/github connect`."
+			text = "You must connect your account to GitLab first. Either click on the GitLab logo in the bottom left of the screen or enter `/gitlab connect`."
 		}
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, text), nil
 	}
 
-	githubClient = p.githubConnect(*info.Token)
+	gitlabClient = p.gitlabConnect(*info.Token)
 
 	switch action {
 	case "subscribe":
@@ -100,7 +100,7 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 
 		repo := parameters[0]
 
-		if err := p.Subscribe(context.Background(), githubClient, args.UserId, repo, args.ChannelId, features); err != nil {
+		if err := p.Subscribe(context.Background(), gitlabClient, args.UserId, repo, args.ChannelId, features); err != nil {
 			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, err.Error()), nil
 		}
 
@@ -119,30 +119,30 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, fmt.Sprintf("Succesfully unsubscribed from %s.", repo)), nil
 	case "disconnect":
-		p.disconnectGitHubAccount(args.UserId)
+		p.disconnectGitLabAccount(args.UserId)
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Disconnected your GitHub account."), nil
 	case "todo":
-		text, err := p.GetToDo(ctx, info.GitHubUsername, githubClient)
+		text, err := p.GetToDo(ctx, info.GitLabUsername, gitlabClient)
 		if err != nil {
 			mlog.Error(err.Error())
 			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Encountered an error getting your to do items."), nil
 		}
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, text), nil
 	case "me":
-		gitUser, _, err := githubClient.Users.Get(ctx, "")
+		gitUser, _, err := gitlabClient.Users.CurrentUser()
 		if err != nil {
-			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Encountered an error getting your GitHub profile."), nil
+			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Encountered an error getting your GitLab profile."), nil
 		}
 
-		text := fmt.Sprintf("You are connected to GitHub as:\n# [![image](%s =40x40)](%s) [%s](%s)", gitUser.GetAvatarURL(), gitUser.GetHTMLURL(), gitUser.GetLogin(), gitUser.GetHTMLURL())
+		text := fmt.Sprintf("You are connected to GitLab as:\n# [![image](%s =40x40)](%s) [%s](%s)", gitUser.AvatarURL, p.BaseURL+"/"+gitUser.Username, gitUser.Username, p.BaseURL+"/"+gitUser.Username)
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, text), nil
 	case "help":
-		text := "###### Mattermost GitHub Plugin - Slash Command Help\n" + strings.Replace(COMMAND_HELP, "|", "`", -1)
+		text := "###### Mattermost GitLab Plugin - Slash Command Help\n" + strings.Replace(COMMAND_HELP, "|", "`", -1)
 
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, text), nil
 	case "settings":
 		if len(parameters) < 2 {
-			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Please specify both a setting and value. Use `/github help` for more usage information."), nil
+			return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Please specify both a setting and value. Use `/gitlab help` for more usage information."), nil
 		}
 
 		setting := parameters[0]
@@ -160,9 +160,9 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 
 		if setting == SETTING_NOTIFICATIONS {
 			if value {
-				p.storeGitHubToUserIDMapping(info.GitHubUsername, info.UserID)
+				p.storeGitLabToUserIDMapping(info.GitLabUsername, info.UserID)
 			} else {
-				p.API.KVDelete(info.GitHubUsername + GITHUB_USERNAME_KEY)
+				p.API.KVDelete(info.GitLabUsername + GITLAB_USERNAME_KEY)
 			}
 
 			info.Settings.Notifications = value
@@ -170,7 +170,7 @@ func (p *Plugin) ExecuteCommand(c *plugin.Context, args *model.CommandArgs) (*mo
 			info.Settings.DailyReminder = value
 		}
 
-		p.storeGitHubUserInfo(info)
+		p.storeGitLabUserInfo(info)
 
 		return getCommandResponse(model.COMMAND_RESPONSE_TYPE_EPHEMERAL, "Settings updated."), nil
 	}

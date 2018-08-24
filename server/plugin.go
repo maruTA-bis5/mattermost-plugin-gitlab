@@ -8,18 +8,17 @@ import (
 	"strings"
 
 	"github.com/mattermost/mattermost-server/mlog"
-
 	"github.com/mattermost/mattermost-server/model"
 	"github.com/mattermost/mattermost-server/plugin"
 
-	"github.com/google/go-github/github"
+	"github.com/xanzy/go-gitlab"
 	"golang.org/x/oauth2"
 )
 
 const (
-	GITHUB_TOKEN_KEY        = "_githubtoken"
-	GITHUB_STATE_KEY        = "_githubstate"
-	GITHUB_USERNAME_KEY     = "_githubusername"
+	GITLAB_TOKEN_KEY        = "_gitlabtoken"
+	GITLAB_STATE_KEY        = "_gitlabstate"
+	GITLAB_USERNAME_KEY     = "_gitlabusername"
 	WS_EVENT_CONNECT        = "connect"
 	WS_EVENT_DISCONNECT     = "disconnect"
 	WS_EVENT_REFRESH        = "refresh"
@@ -34,34 +33,22 @@ const (
 
 type Plugin struct {
 	plugin.MattermostPlugin
-	githubClient *github.Client
+	gitlabClient *gitlab.Client
 
 	BotUserID string
 
-	GitHubOrg               string
+	GitLabOrg               string
 	Username                string
-	GitHubOAuthClientID     string
-	GitHubOAuthClientSecret string
+	GitLabOAuthClientID     string
+	GitLabOAuthClientSecret string
 	WebhookSecret           string
 	EncryptionKey           string
-	EnterpriseBaseURL       string
-	EnterpriseUploadURL     string
+	BaseURL                 string
+	UploadURL               string
 }
 
-func (p *Plugin) githubConnect(token oauth2.Token) *github.Client {
-	ctx := context.Background()
-	ts := oauth2.StaticTokenSource(&token)
-	tc := oauth2.NewClient(ctx, ts)
-
-	if len(p.EnterpriseBaseURL) == 0 || len(p.EnterpriseUploadURL) == 0 {
-		return github.NewClient(tc)
-	}
-
-	client, err := github.NewEnterpriseClient(p.EnterpriseBaseURL, p.EnterpriseUploadURL, tc)
-	if err != nil {
-		mlog.Error(err.Error())
-		return github.NewClient(tc)
-	}
+func (p *Plugin) gitlabConnect(token oauth2.Token) *gitlab.Client {
+	client := gitlab.NewOAuthClient(nil, token.AccessToken)
 	return client
 }
 
@@ -81,12 +68,12 @@ func (p *Plugin) OnActivate() error {
 }
 
 func (p *Plugin) IsValid() error {
-	if p.GitHubOAuthClientID == "" {
-		return fmt.Errorf("Must have a github oauth client id")
+	if p.GitLabOAuthClientID == "" {
+		return fmt.Errorf("Must have a gitlab oauth client id")
 	}
 
-	if p.GitHubOAuthClientSecret == "" {
-		return fmt.Errorf("Must have a github oauth client secret")
+	if p.GitLabOAuthClientSecret == "" {
+		return fmt.Errorf("Must have a gitlab oauth client secret")
 	}
 
 	if p.EncryptionKey == "" {
@@ -97,30 +84,34 @@ func (p *Plugin) IsValid() error {
 		return fmt.Errorf("Need a user to make posts as")
 	}
 
+	if p.BaseURL == "" {
+		return fmt.Errorf("Must have a gitlab base url")
+	}
+
+	if p.UploadURL == "" {
+		return fmt.Errorf("Must have a gitlab upload url")
+	}
+
 	return nil
 }
 
 func (p *Plugin) getOAuthConfig() *oauth2.Config {
-	baseURL := "https://github.com/"
-	if len(p.EnterpriseBaseURL) > 0 {
-		baseURL = p.EnterpriseBaseURL
-	}
-
 	return &oauth2.Config{
-		ClientID:     p.GitHubOAuthClientID,
-		ClientSecret: p.GitHubOAuthClientSecret,
-		Scopes:       []string{"public_repo,notifications"},
+		ClientID:     p.GitLabOAuthClientID,
+		ClientSecret: p.GitLabOAuthClientSecret,
+		Scopes:       []string{"api","read_user"},
+		RedirectURL:  fmt.Sprintf("%s/plugins/gitlab/oauth/complete", *p.API.GetConfig().ServiceSettings.SiteURL),
 		Endpoint: oauth2.Endpoint{
-			AuthURL:  baseURL + "login/oauth/authorize",
-			TokenURL: baseURL + "login/oauth/access_token",
+			AuthURL:  p.BaseURL + "/oauth/authorize",
+			TokenURL: p.BaseURL + "/oauth/token",
 		},
 	}
 }
 
-type GitHubUserInfo struct {
+type GitLabUserInfo struct {
 	UserID         string
 	Token          *oauth2.Token
-	GitHubUsername string
+	GitLabUsername string
 	LastToDoPostAt int64
 	Settings       *UserSettings
 }
@@ -131,7 +122,7 @@ type UserSettings struct {
 	Notifications  bool   `json:"notifications"`
 }
 
-func (p *Plugin) storeGitHubUserInfo(info *GitHubUserInfo) error {
+func (p *Plugin) storeGitLabUserInfo(info *GitLabUserInfo) error {
 	encryptedToken, err := encrypt([]byte(p.EncryptionKey), info.Token.AccessToken)
 	if err != nil {
 		return err
@@ -144,18 +135,18 @@ func (p *Plugin) storeGitHubUserInfo(info *GitHubUserInfo) error {
 		return err
 	}
 
-	if err := p.API.KVSet(info.UserID+GITHUB_TOKEN_KEY, jsonInfo); err != nil {
+	if err := p.API.KVSet(info.UserID+GITLAB_TOKEN_KEY, jsonInfo); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (p *Plugin) getGitHubUserInfo(userID string) (*GitHubUserInfo, *APIErrorResponse) {
-	var userInfo GitHubUserInfo
+func (p *Plugin) getGitLabUserInfo(userID string) (*GitLabUserInfo, *APIErrorResponse) {
+	var userInfo GitLabUserInfo
 
-	if infoBytes, err := p.API.KVGet(userID + GITHUB_TOKEN_KEY); err != nil || infoBytes == nil {
-		return nil, &APIErrorResponse{ID: API_ERROR_ID_NOT_CONNECTED, Message: "Must connect user account to GitHub first.", StatusCode: http.StatusBadRequest}
+	if infoBytes, err := p.API.KVGet(userID + GITLAB_TOKEN_KEY); err != nil || infoBytes == nil {
+		return nil, &APIErrorResponse{ID: API_ERROR_ID_NOT_CONNECTED, Message: "Must connect user account to GitLab first.", StatusCode: http.StatusBadRequest}
 	} else if err := json.Unmarshal(infoBytes, &userInfo); err != nil {
 		return nil, &APIErrorResponse{ID: "", Message: "Unable to parse token.", StatusCode: http.StatusInternalServerError}
 	}
@@ -171,29 +162,29 @@ func (p *Plugin) getGitHubUserInfo(userID string) (*GitHubUserInfo, *APIErrorRes
 	return &userInfo, nil
 }
 
-func (p *Plugin) storeGitHubToUserIDMapping(githubUsername, userID string) error {
-	if err := p.API.KVSet(githubUsername+GITHUB_USERNAME_KEY, []byte(userID)); err != nil {
-		return fmt.Errorf("Encountered error saving github username mapping")
+func (p *Plugin) storeGitLabToUserIDMapping(gitlabUsername, userID string) error {
+	if err := p.API.KVSet(gitlabUsername+GITLAB_USERNAME_KEY, []byte(userID)); err != nil {
+		return fmt.Errorf("Encountered error saving gitlab username mapping")
 	}
 	return nil
 }
 
-func (p *Plugin) getGitHubToUserIDMapping(githubUsername string) string {
-	userID, _ := p.API.KVGet(githubUsername + GITHUB_USERNAME_KEY)
+func (p *Plugin) getGitLabToUserIDMapping(gitlabUsername string) string {
+	userID, _ := p.API.KVGet(gitlabUsername + GITLAB_USERNAME_KEY)
 	return string(userID)
 }
 
-func (p *Plugin) disconnectGitHubAccount(userID string) {
-	userInfo, _ := p.getGitHubUserInfo(userID)
+func (p *Plugin) disconnectGitLabAccount(userID string) {
+	userInfo, _ := p.getGitLabUserInfo(userID)
 	if userInfo == nil {
 		return
 	}
 
-	p.API.KVDelete(userID + GITHUB_TOKEN_KEY)
-	p.API.KVDelete(userInfo.GitHubUsername + GITHUB_USERNAME_KEY)
+	p.API.KVDelete(userID + GITLAB_TOKEN_KEY)
+	p.API.KVDelete(userInfo.GitLabUsername + GITLAB_USERNAME_KEY)
 
-	if user, err := p.API.GetUser(userID); err == nil && user.Props != nil && len(user.Props["git_user"]) > 0 {
-		delete(user.Props, "git_user")
+	if user, err := p.API.GetUser(userID); err == nil && user.Props != nil && len(user.Props["gitlab_user"]) > 0 {
+		delete(user.Props, "gitlab_user")
 		p.API.UpdateUser(user)
 	}
 
@@ -218,8 +209,8 @@ func (p *Plugin) CreateBotDMPost(userID, message, postType string) *model.AppErr
 		Type:      postType,
 		Props: map[string]interface{}{
 			"from_webhook":      "true",
-			"override_username": GITHUB_USERNAME,
-			"override_icon_url": GITHUB_ICON_URL,
+			"override_username": GITLAB_USERNAME,
+			"override_icon_url": GITLAB_ICON_URL,
 		},
 	}
 
@@ -231,107 +222,96 @@ func (p *Plugin) CreateBotDMPost(userID, message, postType string) *model.AppErr
 	return nil
 }
 
-func (p *Plugin) PostToDo(info *GitHubUserInfo) {
-	text, err := p.GetToDo(context.Background(), info.GitHubUsername, p.githubConnect(*info.Token))
+func (p *Plugin) PostToDo(info *GitLabUserInfo) {
+	text, err := p.GetToDo(context.Background(), info.GitLabUsername, p.gitlabConnect(*info.Token))
 	if err != nil {
 		mlog.Error(err.Error())
 		return
 	}
 
-	p.CreateBotDMPost(info.UserID, text, "custom_git_todo")
+	p.CreateBotDMPost(info.UserID, text, "custom_gitlab_todo")
 }
 
-func (p *Plugin) GetToDo(ctx context.Context, username string, githubClient *github.Client) (string, error) {
-	issueResults, _, err := githubClient.Search.Issues(ctx, getReviewSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
+func (p *Plugin) GetToDo(ctx context.Context, username string, gitlabClient *gitlab.Client) (string, error) {
+	todos, _, err := gitlabClient.Todos.ListTodos(&gitlab.ListTodosOptions{})
 	if err != nil {
 		return "", err
 	}
 
-	notifications, _, err := githubClient.Activity.ListNotifications(ctx, &github.NotificationListOptions{})
+	mergeRequests, _, err := gitlabClient.MergeRequests.ListMergeRequests(&gitlab.ListMergeRequestsOptions{
+		Scope: gitlab.String("created_by_me"),
+	})
 	if err != nil {
 		return "", err
 	}
 
-	yourPrs, _, err := githubClient.Search.Issues(ctx, getYourPrsSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
+	assignedIssues, _, err := gitlabClient.Issues.ListIssues(&gitlab.ListIssuesOptions{
+		Scope: gitlab.String("assigned_to_me"),
+	})
+	if err != nil {
+		return "", err
+	}
+	assignedMrs, _, err := gitlabClient.MergeRequests.ListMergeRequests(&gitlab.ListMergeRequestsOptions{
+		Scope: gitlab.String("assigned_to_me"),
+	})
 	if err != nil {
 		return "", err
 	}
 
-	yourAssignments, _, err := githubClient.Search.Issues(ctx, getYourAssigneeSearchQuery(username, p.GitHubOrg), &github.SearchOptions{})
-	if err != nil {
-		return "", err
-	}
+	text := "##### Todos\n"
 
-	text := "##### Unread Messages\n"
-
-	notificationCount := 0
-	notificationContent := ""
-	for _, n := range notifications {
-		if n.GetReason() == "subscribed" {
+	todoCount := 0
+	todoContent := ""
+	for _, todo := range todos {
+		if todo.State == "done" {
 			continue
 		}
 
-		if n.GetRepository() == nil {
+		if &todo.Project == nil {
 			p.API.LogError("Unable to get repository for notification in todo list. Skipping.")
 			continue
 		}
 
-		if p.checkOrg(n.GetRepository().GetOwner().GetLogin()) != nil {
+		_, org, _ := parseOwnerAndRepo(todo.Project.PathWithNamespace, p.BaseURL)
+		if p.checkOrg(org) != nil {
 			continue
 		}
 
-		switch n.GetSubject().GetType() {
-		case "RepositoryVulnerabilityAlert":
-			message := fmt.Sprintf("[Vulnerability Alert for %v](%v)", n.GetRepository().GetFullName(), fixGithubNotificationSubjectURL(n.GetSubject().GetURL()))
-			notificationContent += fmt.Sprintf("* %v\n", message)
-		default:
-			url := fixGithubNotificationSubjectURL(n.GetSubject().GetURL())
-			notificationContent += fmt.Sprintf("* %v\n", url)
-		}
-
-		notificationCount++
+		todoContent += fmt.Sprintf("* %v\n", todo.TargetURL)
+		todoCount++
 	}
 
-	if notificationCount == 0 {
-		text += "You don't have any unread messages.\n"
+	if todoCount == 0 {
+		text += "You don't have any todos.\n"
 	} else {
-		text += fmt.Sprintf("You have %v unread messages:\n", notificationCount)
-		text += notificationContent
+		text += fmt.Sprintf("You have %v pending todos:\n", todoCount)
+		text += todoContent
 	}
 
-	text += "##### Review Requests\n"
+	text += "##### Your Open Merge Requests\n"
 
-	if issueResults.GetTotal() == 0 {
-		text += "You have don't have any pull requests awaiting your review.\n"
+	if len(mergeRequests) == 0 {
+		text += "You have don't have any open merge requests.\n"
 	} else {
-		text += fmt.Sprintf("You have %v pull requests awaiting your review:\n", issueResults.GetTotal())
+		text += fmt.Sprintf("You have %v open merge requests:\n", len(mergeRequests))
 
-		for _, pr := range issueResults.Issues {
-			text += fmt.Sprintf("* %v\n", pr.GetHTMLURL())
-		}
-	}
-
-	text += "##### Your Open Pull Requests\n"
-
-	if yourPrs.GetTotal() == 0 {
-		text += "You have don't have any open pull requests.\n"
-	} else {
-		text += fmt.Sprintf("You have %v open pull requests:\n", yourPrs.GetTotal())
-
-		for _, pr := range yourPrs.Issues {
-			text += fmt.Sprintf("* %v\n", pr.GetHTMLURL())
+		for _, mr := range mergeRequests {
+			text += fmt.Sprintf("* %v\n", mr.WebURL)
 		}
 	}
 
 	text += "##### Your Assigments\n"
 
-	if yourAssignments.GetTotal() == 0 {
+	if len(assignedIssues) == 0 && len(assignedMrs) == 0 {
 		text += "You have don't have any assignments.\n"
 	} else {
-		text += fmt.Sprintf("You have %v assignments:\n", yourAssignments.GetTotal())
+		text += fmt.Sprintf("You have %v assignments:\n", (len(assignedIssues)+len(assignedMrs)))
 
-		for _, assign := range yourAssignments.Issues {
-			text += fmt.Sprintf("* %v\n", assign.GetHTMLURL())
+		for _, issue := range assignedIssues {
+			text += fmt.Sprintf("* %v\n", issue.WebURL)
+		}
+		for _, mr := range assignedMrs {
+			text += fmt.Sprintf("* %v\n", mr.WebURL)
 		}
 	}
 
@@ -339,7 +319,7 @@ func (p *Plugin) GetToDo(ctx context.Context, username string, githubClient *git
 }
 
 func (p *Plugin) checkOrg(org string) error {
-	configOrg := strings.TrimSpace(p.GitHubOrg)
+	configOrg := strings.TrimSpace(p.GitLabOrg)
 	if configOrg != "" && configOrg != org {
 		return fmt.Errorf("Only repositories in the %v organization are supported", configOrg)
 	}

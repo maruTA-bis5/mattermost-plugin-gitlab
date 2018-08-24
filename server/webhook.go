@@ -1,19 +1,18 @@
 package main
-
 import (
-	"crypto/hmac"
-	"crypto/sha1"
-	"encoding/hex"
-	"fmt"
-	"io/ioutil"
+	//"crypto/hmac"
+	//"crypto/sha1"
+	//"encoding/hex"
+	//"fmt"
+	//"io/ioutil"
 	"net/http"
-	"strings"
+	//"strings"
 
-	"github.com/google/go-github/github"
-	"github.com/mattermost/mattermost-server/mlog"
-	"github.com/mattermost/mattermost-server/model"
+	//"github.com/xanzy/go-gitlab"
+	//"github.com/mattermost/mattermost-server/mlog"
+	//"github.com/mattermost/mattermost-server/model"
 )
-
+/*
 func verifyWebhookSignature(secret []byte, signature string, body []byte) bool {
 
 	const signaturePrefix = "sha1="
@@ -34,7 +33,13 @@ func signBody(secret, body []byte) []byte {
 	computed.Write(body)
 	return []byte(computed.Sum(nil))
 }
+*/
 
+func (p *Plugin) handleWebhook(w http.ResponseWriter, r *http.Request) {
+	// TODO impl
+}
+
+/*
 func (p *Plugin) handleWebhook(w http.ResponseWriter, r *http.Request) {
 	signature := r.Header.Get("X-Hub-Signature")
 
@@ -420,3 +425,4 @@ func (p *Plugin) handlePullRequestReviewNotification(event *github.PullRequestRe
 	p.CreateBotDMPost(authorUserID, message, "custom_git_review")
 	p.sendRefreshEvent(authorUserID)
 }
+*/

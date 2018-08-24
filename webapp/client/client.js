@@ -2,7 +2,7 @@ import request from 'superagent';
 
 export default class Client {
     constructor() {
-        this.url = '/plugins/github/api/v1';
+        this.url = '/plugins/gitlab/api/v1';
     }
 
     getConnected = async (reminder = false) => {

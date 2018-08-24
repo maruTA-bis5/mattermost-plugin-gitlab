@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestParseGitHubUsernameFromText(t *testing.T) {
+func TestParseGitLabUsernameFromText(t *testing.T) {
 	tcs := []struct {
 		Text     string
 		Expected []string
@@ -30,6 +30,6 @@ func TestParseGitHubUsernameFromText(t *testing.T) {
 	}
 
 	for _, tc := range tcs {
-		assert.Equal(t, tc.Expected, pparseGitHubUsernamesFromText(tc.Text))
+		assert.Equal(t, tc.Expected, parseGitLabUsernamesFromText(tc.Text))
 	}
 }

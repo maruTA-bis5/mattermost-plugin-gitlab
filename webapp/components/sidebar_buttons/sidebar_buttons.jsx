@@ -9,7 +9,7 @@ export default class SidebarButtons extends React.PureComponent {
         connected: PropTypes.bool,
         username: PropTypes.string,
         clientId: PropTypes.string,
-        enterpriseURL: PropTypes.string,
+        baseURL: PropTypes.string,
         reviews: PropTypes.arrayOf(PropTypes.object),
         unreads: PropTypes.arrayOf(PropTypes.object),
         yourPrs: PropTypes.arrayOf(PropTypes.object),
@@ -64,7 +64,7 @@ export default class SidebarButtons extends React.PureComponent {
 
     openConnectWindow = (e) => {
         e.preventDefault();
-        window.open('/plugins/github/oauth/connect', 'Connect Mattermost to GitHub', 'height=570,width=520');
+        window.open('/plugins/gitlab/oauth/connect', 'Connect Mattermost to GitLab', 'height=570,width=520');
     }
 
     render() {
@@ -84,12 +84,12 @@ export default class SidebarButtons extends React.PureComponent {
             if (isTeamSidebar) {
                 return (
                     <OverlayTrigger
-                        key='githubConnectLink'
+                        key='gitlabConnectLink'
                         placement={placement}
                         overlay={<Tooltip id="reviewTooltip">Connect to your GitHub</Tooltip>}
                     >
                         <a
-                            href='/plugins/github/oauth/connect'
+                            href='/plugins/gitlab/oauth/connect'
                             onClick={this.openConnectWindow}
                             style={button}
                         >
@@ -108,10 +108,7 @@ export default class SidebarButtons extends React.PureComponent {
         const yourAssignments = this.props.yourAssignments || [];
         const refreshClass = this.state.refreshing ? ' fa-spin' : '';
 
-        let baseURL = 'https://github.com';
-        if (this.props.enterpriseURL) {
-            baseURL = enterpriseURL;
-        }
+        const baseURL = this.props.baseURL;
 
         return (
             <div style={container}>

@@ -22,9 +22,9 @@ class PluginClass {
         registry.registerBottomTeamSidebarComponent(TeamSidebar);
         registry.registerPopoverUserAttributesComponent(UserAttribute);
 
-        registry.registerWebSocketEventHandler('custom_github_connect', handleConnect(store));
-        registry.registerWebSocketEventHandler('custom_github_disconnect', handleDisconnect(store));
-        registry.registerWebSocketEventHandler('custom_github_refresh', handleRefresh(store));
+        registry.registerWebSocketEventHandler('custom_gitlab_connect', handleConnect(store));
+        registry.registerWebSocketEventHandler('custom_gitlab_disconnect', handleDisconnect(store));
+        registry.registerWebSocketEventHandler('custom_gitlab_refresh', handleRefresh(store));
         registry.registerReconnectHandler(handleReconnect(store));
 
         activityFunc = () => {
@@ -43,4 +43,4 @@ class PluginClass {
     }
 }
 
-global.window.registerPlugin('github', new PluginClass());
+global.window.registerPlugin('gitlab', new PluginClass());

@@ -1,7 +1,7 @@
 {
-  "name": "github",
+  "name": "gitlab",
   "version": "1.0.0",
-  "description": "Github plugin for Mattermost",
+  "description": "Gitlab plugin for Mattermost",
   "dependencies": {
     "mattermost-redux": "1.0.1",
     "prop-types": "15.5.10",

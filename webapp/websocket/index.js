@@ -21,8 +21,8 @@ export function handleDisconnect(store) {
             type: ActionTypes.RECEIVED_CONNECTED,
             data: {
                 connected: false,
-                github_username: '',
-                github_client_id: '',
+                gitlab_username: '',
+                gitlab_client_id: '',
                 settings: {},
             }
         });
@@ -44,7 +44,7 @@ export function handleReconnect(store, reminder = false) {
 export function handleRefresh(store) {
     return () => {
         console.log('refresh');
-        if (store.getState()['plugins-github'].connected) {
+        if (store.getState()['plugins-gitlab'].connected) {
             getReviews()(store.dispatch, store.getState);
             getUnreads()(store.dispatch, store.getState);
             getYourPrs()(store.dispatch, store.getState);

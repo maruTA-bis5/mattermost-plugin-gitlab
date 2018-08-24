@@ -8,6 +8,7 @@ export default class UserAttribute extends React.PureComponent {
     static propTypes = {
         theme: PropTypes.object.isRequired,
         username: PropTypes.string,
+		baseURL: PropTypes.string.isRequired,
     };
 
     render() {
@@ -22,10 +23,10 @@ export default class UserAttribute extends React.PureComponent {
         return (
             <div style={style.container}>
             <a
-                href={'https://github.com/' + username}
+                href={this.props.baseURL + "/" + username}
                 target='_blank'
             >
-                <i className='fa fa-github'/>{' ' + username}
+                <i className='fa fa-gitlab'/>{' ' + username}
             </a>
             </div>
         );

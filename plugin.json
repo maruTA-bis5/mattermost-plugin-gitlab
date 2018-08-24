@@ -1,34 +1,34 @@
 {
-    "id": "github",
-    "name": "GitHub",
-    "description": "GitHub plugin for Mattermost.",
-    "version": "0.5.0",
+    "id": "gitlab",
+    "name": "GitLab",
+    "description": "GitLab plugin for Mattermost.",
+    "version": "0.0.1",
     "backend": {
         "executable": "server/plugin.exe"
     },
     "webapp": {
-        "bundle_path": "webapp/github_bundle.js"
+        "bundle_path": "webapp/gitlab_bundle.js"
     },
     "settings_schema": {
-        "header": "To set up the GitHub plugin, you need to register a GitHub OAuth app here https://github.com/settings/applications/new.",
+        "header": "To set up the GitiLab plugin, you need to register a GitHub OAuth app here https://github.com/settings/applications/new.",
         "settings": [
             {
-                "key": "GitHubOAuthClientID",
-                "display_name": "GitHub OAuth Client ID",
+                "key": "GitLabOAuthClientID",
+                "display_name": "GitLab OAuth Client ID",
                 "type": "text",
-                "help_text": "The client ID for the OAuth app registered with GitHub."
+                "help_text": "The client ID for the OAuth app registered with GitLab."
             },
             {
-                "key": "GitHubOAuthClientSecret",
-                "display_name": "GitHub OAuth Client Secret",
+                "key": "GitLabOAuthClientSecret",
+                "display_name": "GitLab OAuth Client Secret",
                 "type": "text",
-                "help_text": "The client secret for the OAuth app registered with GitHub."
+                "help_text": "The client secret for the OAuth app registered with GitLab."
             },
             {
                 "key": "WebhookSecret",
                 "display_name": "Webhook Secret",
                 "type": "generated",
-                "help_text": "The webhook secret set in GitHub."
+                "help_text": "The webhook secret set in GitLab."
             },
             {
                 "key": "Username",
@@ -43,22 +43,22 @@
                 "help_text": "The AES encryption key used to encrypt stored access tokens."
             },
             {
-                "key": "GithubOrg",
+                "key": "GitLabOrg",
                 "display_name": "GitHub Organization",
                 "type": "text",
-                "help_text": "(Optional) Set to lock the plugin to a single GitHub organization."
+                "help_text": "(Optional) Set to lock the plugin to a single GitLab organization."
             },
             {
-                "key": "EnterpriseBaseURL",
-                "display_name": "Enterprise Base URL",
+                "key": "BaseURL",
+                "display_name": "Base URL",
                 "type": "text",
-                "help_text": "(Optional) The base URL for using the plugin with a GitHub Enterprise installation."
+                "help_text": "The base URL for using the plugin with a GitLab installation."
             },
             {
-                "key": "EnterpriseUploadURL",
-                "display_name": "Enterprise Upload URL",
+                "key": "UploadURL",
+                "display_name": "Upload URL",
                 "type": "text",
-                "help_text": "(Optional) The upload URL for using the plugin with a GitHub Enterprise installation."
+                "help_text": "The upload URL for using the plugin with a GitLab installation."
             }
         ],
         "footer": ""
